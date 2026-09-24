@@ -1,273 +1,251 @@
-// MPLAD Sentinel — Prisma schema (SQLite, full v2 entity set)
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// ─────────────────────────── AUTH & USERS ───────────────────────────
-
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+  id        String    @id @default(cuid())
+  email     String    @unique
   password  String
   name      String
-  role      String   @default("analyst") // admin | analyst | auditor | citizen
+  role      String    @default("analyst")
   state     String?
-  createdAt DateTime @default(now())
-
-  sessions Session[]
+  createdAt DateTime  @default(now())
+  sessions  Session[]
 }
 
 model Session {
   id        String   @id @default(cuid())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
 }
 
-// ─────────────────────────── REFERENCE DATA ───────────────────────────
-
 model State {
-  id              String   @id @default(cuid())
-  name            String   @unique
-  code            String   @unique
-
-  districts       District[]
-  constituencies  MpConstituency[]
-  vendors         Vendor[]
-  forecastPoints  ForecastPoint[]
-  works           Work[]
+  id             String           @id @default(cuid())
+  name           String           @unique
+  code           String           @unique
+  districts      District[]
+  forecastPoints ForecastPoint[]
+  constituencies MpConstituency[]
+  vendors        Vendor[]
+  works          Work[]
 }
 
 model District {
-  id        String   @id @default(cuid())
-  name      String
-  stateId   String
-  state     State    @relation(fields: [stateId], references: [id])
-  works     Work[]
+  id      String @id @default(cuid())
+  name    String
+  stateId String
+  state   State  @relation(fields: [stateId], references: [id])
+  works   Work[]
+
   @@unique([name, stateId])
 }
 
 model MpConstituency {
-  id        String   @id @default(cuid())
-  name      String
-  stateId   String
-  state     State    @relation(fields: [stateId], references: [id])
-  mpName    String
-  party     String?
-  mpId      String   @unique
-  works     Work[]
+  id      String  @id @default(cuid())
+  name    String
+  stateId String
+  mpName  String
+  party   String?
+  mpId    String  @unique
+  state   State   @relation(fields: [stateId], references: [id])
+  works   Work[]
 }
 
-// ─────────────────────────── CORE MPLAD DATA ───────────────────────────
-
 model Work {
-  id              String   @id @default(cuid())
-  workId          String   @unique
-  title           String
-  description     String
-  category        String
-  mpConstituencyId String?
-  mpConstituency  MpConstituency? @relation(fields: [mpConstituencyId], references: [id])
-  mpId            String?
-  districtId     String?
-  district       District? @relation(fields: [districtId], references: [id])
-  stateId         String?
-  state          State?   @relation(fields: [stateId], references: [id])
-  fundSanctioned  Float
-  fundUtilized    Float
-  startDate       DateTime?
-  endDate         DateTime?
-  status          String   @default("ongoing") // ongoing | completed | stalled
-  vendorId        String?
-  vendor          Vendor?  @relation(fields: [vendorId], references: [id])
-  createdAt       DateTime @default(now())
-
-  payments        Payment[]
-  riskScores      RiskScore[]
-  cases           Case[]
-  citizenReports  CitizenReport[]
+  id                 String              @id @default(cuid())
+  workId             String              @unique
+  title              String
+  description        String
+  category           String
+  mpConstituencyId   String?
+  mpId               String?
+  districtId         String?
+  stateId            String?
+  fundSanctioned     Float
+  fundUtilized       Float
+  startDate          DateTime?
+  endDate            DateTime?
+  status             String              @default("ongoing")
+  vendorId           String?
+  createdAt          DateTime            @default(now())
+  cases              Case[]
+  citizenReports     CitizenReport[]
   fieldVerifications FieldVerification[]
+  payments           Payment[]
+  riskScores         RiskScore[]
+  district           District?           @relation(fields: [districtId], references: [id])
+  mpConstituency     MpConstituency?     @relation(fields: [mpConstituencyId], references: [id])
+  state              State?              @relation(fields: [stateId], references: [id])
+  vendor             Vendor?             @relation(fields: [vendorId], references: [id])
 }
 
 model Vendor {
-  id            String   @id @default(cuid())
-  vendorId      String   @unique
-  name          String
-  pan           String   // duplicate PAN is itself a fraud signal — not unique-constrained
-  gst           String?
-  bankAccount   String
-  phone         String?
-  address       String?
-  stateId       String?
-  state         State?   @relation(fields: [stateId], references: [id])
-  registeredAt  DateTime @default(now())
-
-  works         Work[]
+  id               String           @id @default(cuid())
+  vendorId         String           @unique
+  name             String
+  pan              String
+  gst              String?
+  bankAccount      String
+  phone            String?
+  address          String?
+  stateId          String?
+  registeredAt     DateTime         @default(now())
   blacklistEntries BlacklistEntry[]
-  graphEdgesFrom GraphEdge[] @relation("FromVendor")
-  graphEdgesTo   GraphEdge[] @relation("ToVendor")
+  graphEdgesFrom   GraphEdge[]      @relation("FromVendor")
+  graphEdgesTo     GraphEdge[]      @relation("ToVendor")
+  state            State?           @relation(fields: [stateId], references: [id])
+  works            Work[]
 }
 
 model Payment {
   id         String   @id @default(cuid())
   workId     String
-  work       Work     @relation(fields: [workId], references: [id])
   amount     Float
   paidAt     DateTime
-  instrument String   @default("bank") // bank | cheque | rtgs
+  instrument String   @default("bank")
   reference  String?
+  work       Work     @relation(fields: [workId], references: [id])
 }
 
-// ─────────────────────────── RISK / SCORING ───────────────────────────
-
 model RiskScore {
-  id           String   @id @default(cuid())
-  workId       String
-  work         Work     @relation(fields: [workId], references: [id])
-  ruleScore    Float    @default(0)
-  isoScore     Float    @default(0)
-  aeScore      Float    @default(0)
-  graphScore   Float    @default(0)
-  nlpScore     Float    @default(0)
-  ensembleScore Float
-  riskTier     String
-  shapJson     String
-  ruleFlags    String?
-  blacklistMatch Boolean @default(false)
-  scoredAt     DateTime @default(now())
+  id             String   @id @default(cuid())
+  workId         String
+  ruleScore      Float    @default(0)
+  isoScore       Float    @default(0)
+  aeScore        Float    @default(0)
+  graphScore     Float    @default(0)
+  nlpScore       Float    @default(0)
+  ensembleScore  Float
+  riskTier       String
+  shapJson       String
+  ruleFlags      String?
+  blacklistMatch Boolean  @default(false)
+  scoredAt       DateTime @default(now())
+  work           Work     @relation(fields: [workId], references: [id])
 
   @@index([riskTier])
 }
 
 model ScoringConfig {
-  id            String   @id @default("default")
-  isoWeight     Float    @default(0.30)
-  aeWeight      Float    @default(0.25)
-  graphWeight   Float    @default(0.20)
-  nlpWeight     Float    @default(0.10)
-  ruleWeight    Float    @default(0.15)
-  criticalCutoff Float   @default(0.80)
-  highCutoff    Float    @default(0.60)
-  mediumCutoff  Float    @default(0.40)
-  updatedAt     DateTime @updatedAt
+  id             String   @id @default("default")
+  isoWeight      Float    @default(0.30)
+  aeWeight       Float    @default(0.25)
+  graphWeight    Float    @default(0.20)
+  nlpWeight      Float    @default(0.10)
+  ruleWeight     Float    @default(0.15)
+  criticalCutoff Float    @default(0.80)
+  highCutoff     Float    @default(0.60)
+  mediumCutoff   Float    @default(0.40)
+  updatedAt      DateTime @updatedAt
 }
 
 model ModelRun {
-  id           String   @id @default(cuid())
-  modelName    String
-  version      String
-  trainedAt    DateTime @default(now())
-  metricsJson  String
-  mlflowRunId  String?
-  notes        String?
+  id          String   @id @default(cuid())
+  modelName   String
+  version     String
+  trainedAt   DateTime @default(now())
+  metricsJson String
+  mlflowRunId String?
+  notes       String?
 }
 
-// ─────────────────────────── CASES / INVESTIGATION ───────────────────────────
-
 model Case {
-  id           String   @id @default(cuid())
-  caseId       String   @unique
-  workId       String
-  work         Work     @relation(fields: [workId], references: [id])
-  status       String   @default("open")
-  assignedTo   String?
-  priority     String   @default("high")
-  notes        String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  auditLog     AuditLogEntry[]
+  id            String            @id @default(cuid())
+  caseId        String            @unique
+  workId        String
+  status        String            @default("open")
+  assignedTo    String?
+  priority      String            @default("high")
+  notes         String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  auditLog      AuditLogEntry[]
+  work          Work              @relation(fields: [workId], references: [id])
   notifications NotificationLog[]
 }
 
 model AuditLogEntry {
-  id         String   @id @default(cuid())
-  caseId     String
-  case       Case     @relation(fields: [caseId], references: [id])
-  action     String
-  actorId    String
-  actorName  String
-  prevHash   String
-  thisHash   String
-  payload    String?
-  timestamp  DateTime @default(now())
+  id        String   @id @default(cuid())
+  caseId    String
+  action    String
+  actorId   String
+  actorName String
+  prevHash  String
+  thisHash  String
+  payload   String?
+  timestamp DateTime @default(now())
+  case      Case     @relation(fields: [caseId], references: [id])
 }
 
 model NotificationLog {
-  id         String   @id @default(cuid())
-  caseId     String?
-  case       Case?    @relation(fields: [caseId], references: [id])
-  channel    String
-  recipient  String
-  subject    String
-  body       String
-  status     String   @default("sent")
-  sentAt     DateTime @default(now())
+  id        String   @id @default(cuid())
+  caseId    String?
+  channel   String
+  recipient String
+  subject   String
+  body      String
+  status    String   @default("sent")
+  sentAt    DateTime @default(now())
+  case      Case?    @relation(fields: [caseId], references: [id])
 }
 
-// ─────────────────────────── PUBLIC INPUT ───────────────────────────
-
 model CitizenReport {
-  id          String   @id @default(cuid())
-  workId      String?
-  work        Work?    @relation(fields: [workId], references: [id])
+  id           String   @id @default(cuid())
+  workId       String?
   reporterName String?
-  contact     String?
-  description String
-  photoUrl    String?
-  geoLat      Float?
-  geoLng      Float?
-  status      String   @default("submitted")
+  contact      String?
+  description  String
+  photoUrl     String?
+  geoLat       Float?
+  geoLng       Float?
+  status       String   @default("submitted")
   matchedFlags String?
-  createdAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+  work         Work?    @relation(fields: [workId], references: [id])
 }
 
 model FieldVerification {
-  id            String   @id @default(cuid())
-  workId        String
-  work          Work     @relation(fields: [workId], references: [id])
-  auditorId     String?
-  auditorName   String?
-  photoUrl      String?
-  geoLat        Float?
-  geoLng        Float?
-  matchesClaim  Boolean?
-  notes         String?
-  verifiedAt    DateTime @default(now())
+  id           String   @id @default(cuid())
+  workId       String
+  auditorId    String?
+  auditorName  String?
+  photoUrl     String?
+  geoLat       Float?
+  geoLng       Float?
+  matchesClaim Boolean?
+  notes        String?
+  verifiedAt   DateTime @default(now())
+  work         Work     @relation(fields: [workId], references: [id])
 }
-
-// ─────────────────────────── BLACKLIST ───────────────────────────
 
 model BlacklistEntry {
-  id              String   @id @default(cuid())
-  identifierType  String
-  identifierValue String   @unique
+  id               String   @id @default(cuid())
+  identifierType   String
+  identifierValue  String   @unique
   identifierMasked String
-  reason          String
-  source          String   @default("gst_defaulters")
-  vendorId        String?
-  vendor          Vendor?  @relation(fields: [vendorId], references: [id])
-  addedAt         DateTime @default(now())
+  reason           String
+  source           String   @default("gst_defaulters")
+  vendorId         String?
+  addedAt          DateTime @default(now())
+  vendor           Vendor?  @relation(fields: [vendorId], references: [id])
 }
 
-// ─────────────────────────── GRAPH ───────────────────────────
-
 model GraphEdge {
-  id         String   @id @default(cuid())
+  id           String @id @default(cuid())
   fromVendorId String
-  fromVendor Vendor   @relation("FromVendor", fields: [fromVendorId], references: [id])
   toVendorId   String
-  toVendor   Vendor   @relation("ToVendor", fields: [toVendorId], references: [id])
-  edgeType   String
-  weight     Float    @default(1)
+  edgeType     String
+  weight       Float  @default(1)
+  fromVendor   Vendor @relation("FromVendor", fields: [fromVendorId], references: [id])
+  toVendor     Vendor @relation("ToVendor", fields: [toVendorId], references: [id])
 }
 
 model GraphCluster {
@@ -280,29 +258,25 @@ model GraphCluster {
   detectedAt DateTime @default(now())
 }
 
-// ─────────────────────────── INGESTION ───────────────────────────
-
 model IngestionBatch {
-  id         String   @id @default(cuid())
-  batchId    String   @unique
-  entityType String
-  totalRows  Int
-  validRows  Int
-  rejectedRows Int
+  id            String   @id @default(cuid())
+  batchId       String   @unique
+  entityType    String
+  totalRows     Int
+  validRows     Int
+  rejectedRows  Int
   qualityReport String
-  createdAt  DateTime @default(now())
+  createdAt     DateTime @default(now())
 }
 
-// ─────────────────────────── FORECAST ───────────────────────────
-
 model ForecastPoint {
-  id         String   @id @default(cuid())
-  stateId    String
-  state      State    @relation(fields: [stateId], references: [id])
-  date       DateTime
+  id             String   @id @default(cuid())
+  stateId        String
+  date           DateTime
   predictedCount Float
-  confidence Float
-  createdAt  DateTime @default(now())
+  confidence     Float
+  createdAt      DateTime @default(now())
+  state          State    @relation(fields: [stateId], references: [id])
 
   @@unique([stateId, date])
 }

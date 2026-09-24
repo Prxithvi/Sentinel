@@ -37,3 +37,5 @@ Thumbs.db
 # Prisma generated files
 prisma/*.db
 prisma/*.db-journal
+.vercel
+.env*
