@@ -1,7 +1,7 @@
 // components/views/graph-view.tsx
 'use client'
 
-import { useMemo, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useAsyncEffect } from '@/hooks/use-async-effect'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -22,6 +22,7 @@ interface GraphData { nodes: GraphNode[]; links: GraphLink[]; clusters: GraphClu
 
 type PositionedNode = GraphNode & { x: number; y: number }
 type PositionedLink = GraphLink & { x1: number; y1: number; x2: number; y2: number }
+type Halo = { group: number; cx: number; cy: number; r: number; isRing: boolean; size: number }
 
 const EDGE_META: Record<string, { color: string; label: string }> = {
   shared_pan: { color: '#DC2626', label: 'Shared PAN' },
@@ -39,15 +40,15 @@ function riskColor(score: number, isRing: boolean) {
   return '#0F6B4C'
 }
 
-/**
- * Lightweight force-directed layout — no external dependency.
- * Seeds nodes by cluster into sectors (so related vendors start near each
- * other), then relaxes with pairwise repulsion + spring links + light
- * centering gravity. Runs once per dataset, synchronously, on the client.
- */
+function phaseOf(id: string) {
+  let h = 0
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0
+  return (h % 1000) / 1000 * Math.PI * 2
+}
+
 function useForceLayout(data: GraphData | null) {
   return useMemo(() => {
-    if (!data || data.nodes.length === 0) return { nodes: [] as PositionedNode[], links: [] as PositionedLink[] }
+    if (!data || data.nodes.length === 0) return { nodes: [] as PositionedNode[], links: [] as PositionedLink[], halos: [] as Halo[] }
 
     const cx = CANVAS_W / 2
     const cy = CANVAS_H / 2
@@ -60,41 +61,38 @@ function useForceLayout(data: GraphData | null) {
     const clusterArr = Array.from(clusters.entries())
     const clusterCount = Math.max(clusterArr.length, 1)
 
-    const pos: Record<string, { x: number; y: number; vx: number; vy: number }> = {}
+    const pos: Record<string, { x: number; y: number; vx: number; vy: number; homeX: number; homeY: number }> = {}
     clusterArr.forEach(([, nodes], ci) => {
       const angle = (ci / clusterCount) * 2 * Math.PI
-      const sectorCx = cx + Math.cos(angle) * Math.min(CANVAS_W, CANVAS_H) * 0.32
-      const sectorCy = cy + Math.sin(angle) * Math.min(CANVAS_W, CANVAS_H) * 0.32
+      const sectorCx = cx + Math.cos(angle) * Math.min(CANVAS_W, CANVAS_H) * 0.3
+      const sectorCy = cy + Math.sin(angle) * Math.min(CANVAS_W, CANVAS_H) * 0.3
       nodes.forEach((n, i) => {
         const a = (i / Math.max(nodes.length, 1)) * 2 * Math.PI
-        const jitter = nodes.length > 1 ? 40 : 0
-        pos[n.id] = {
-          x: sectorCx + Math.cos(a) * jitter + (Math.random() - 0.5) * 6,
-          y: sectorCy + Math.sin(a) * jitter + (Math.random() - 0.5) * 6,
-          vx: 0,
-          vy: 0,
-        }
+        const jitter = nodes.length > 1 ? 36 : 0
+        const hx = sectorCx + Math.cos(a) * jitter
+        const hy = sectorCy + Math.sin(a) * jitter
+        pos[n.id] = { x: hx, y: hy, vx: 0, vy: 0, homeX: hx, homeY: hy }
       })
     })
 
     const ids = data.nodes.map((n) => n.id)
     const validLinks = data.links.filter((l) => pos[l.source] && pos[l.target])
 
-    const REPULSION = 1400
-    const SPRING_LEN = 74
+    const REPULSION = 1100
+    const SPRING_LEN = 70
     const SPRING_K = 0.02
-    const CENTER_K = 0.0025
+    const CENTER_K = 0.0012
+    const HOME_K = 0.018
     const DAMPING = 0.82
     const ITERATIONS = 220
 
     for (let iter = 0; iter < ITERATIONS; iter++) {
-      // pairwise repulsion
       for (let i = 0; i < ids.length; i++) {
         const a = pos[ids[i]]
         for (let j = i + 1; j < ids.length; j++) {
           const b = pos[ids[j]]
-          let dx = a.x - b.x
-          let dy = a.y - b.y
+          const dx = a.x - b.x
+          const dy = a.y - b.y
           let distSq = dx * dx + dy * dy
           if (distSq < 1) distSq = 1
           const dist = Math.sqrt(distSq)
@@ -106,7 +104,6 @@ function useForceLayout(data: GraphData | null) {
         }
       }
 
-      // spring links pull connected vendors toward a natural distance
       for (const l of validLinks) {
         const a = pos[l.source]
         const b = pos[l.target]
@@ -120,11 +117,12 @@ function useForceLayout(data: GraphData | null) {
         b.vx -= fx; b.vy -= fy
       }
 
-      // gentle pull toward center so the graph doesn't drift off-canvas
       for (const id of ids) {
         const n = pos[id]
         n.vx += (cx - n.x) * CENTER_K
         n.vy += (cy - n.y) * CENTER_K
+        n.vx += (n.homeX - n.x) * HOME_K
+        n.vy += (n.homeY - n.y) * HOME_K
         n.vx *= DAMPING
         n.vy *= DAMPING
         n.x += n.vx
@@ -147,7 +145,17 @@ function useForceLayout(data: GraphData | null) {
       y2: byId.get(l.target)?.y ?? 0,
     }))
 
-    return { nodes, links }
+    const halos: Halo[] = clusterArr
+      .filter(([, ns]) => ns.length > 1)
+      .map(([group, ns]) => {
+        const pts = ns.map((n) => byId.get(n.id)!)
+        const hcx = pts.reduce((s, p) => s + p.x, 0) / pts.length
+        const hcy = pts.reduce((s, p) => s + p.y, 0) / pts.length
+        const r = Math.max(...pts.map((p) => Math.hypot(p.x - hcx, p.y - hcy))) + 26
+        return { group, cx: hcx, cy: hcy, r, isRing: ns.some((n) => n.isRing), size: ns.length }
+      })
+
+    return { nodes, links, halos }
   }, [data])
 }
 
@@ -161,6 +169,8 @@ export function GraphView() {
   const [activeEdgeTypes, setActiveEdgeTypes] = useState<Set<string>>(
     () => new Set(Object.keys(EDGE_META))
   )
+  const [reducedMotion, setReducedMotion] = useState(false)
+  const [tick, setTick] = useState(0)
 
   const containerRef = useRef<HTMLDivElement>(null)
   const [view, setView] = useState({ x: 0, y: 0, k: 1 })
@@ -173,7 +183,35 @@ export function GraphView() {
     setData(res)
   }, [])
 
-  const { nodes, links } = useForceLayout(data)
+  const { nodes, links, halos } = useForceLayout(data)
+
+  useEffect(() => {
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    setReducedMotion(reduced)
+    if (reduced || nodes.length === 0) return
+
+    let raf = 0
+    const start = performance.now()
+    const loop = (now: number) => {
+      setTick((now - start) / 1000)
+      raf = requestAnimationFrame(loop)
+    }
+    raf = requestAnimationFrame(loop)
+    return () => cancelAnimationFrame(raf)
+  }, [nodes.length])
+
+  const drift = useCallback(
+    (n: PositionedNode) => {
+      if (reducedMotion) return { x: n.x, y: n.y }
+      const p = phaseOf(n.id)
+      const amp = n.isRing ? 1.4 : 2.4
+      return {
+        x: n.x + Math.sin(tick * 0.55 + p) * amp,
+        y: n.y + Math.cos(tick * 0.45 + p * 1.3) * amp,
+      }
+    },
+    [tick, reducedMotion]
+  )
 
   const matchedIds = useMemo(() => {
     if (!query.trim()) return null
@@ -190,9 +228,7 @@ export function GraphView() {
     })
   }
 
-  const zoomBy = (factor: number) => {
-    setView((v) => ({ ...v, k: Math.min(3, Math.max(0.5, v.k * factor)) }))
-  }
+  const zoomBy = (factor: number) => setView((v) => ({ ...v, k: Math.min(3, Math.max(0.5, v.k * factor)) }))
   const resetView = () => setView({ x: 0, y: 0, k: 1 })
 
   const onWheel = (e: React.WheelEvent) => {
@@ -222,17 +258,34 @@ export function GraphView() {
     return false
   }
 
+  const ringCount = data?.rings.length ?? 0
+  const vendorCount = data?.nodes.length ?? 0
+
   return (
     <div className="space-y-4">
-      <div>
-        <h1 className="text-2xl font-display font-medium tracking-tight text-[var(--sentinel-navy)]">
-          {tr('graph_title') || 'Vendor Network — Collusion Ring Detection'}
-        </h1>
-        <p className="text-sm text-[var(--sentinel-navy-muted)] mt-1">
-          Contractor and vendor links surfaced from MPLAD works data — shared PAN, bank account,
-          registered address or the same sanctioned work. Clusters flagged as likely rings are
-          outlined in red.
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-display font-medium tracking-tight text-[var(--sentinel-navy)]">
+            {tr('graph_title') || 'Vendor Network — Collusion Ring Detection'}
+          </h1>
+          <p className="text-sm text-[var(--sentinel-navy-muted)] mt-1 max-w-2xl">
+            Contractor and vendor links surfaced from MPLAD works data — shared PAN, bank account,
+            registered address or the same sanctioned work. Clusters flagged as likely rings are
+            outlined in red.
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2 text-xs text-[var(--sentinel-navy-muted)] bg-white border border-[var(--sentinel-line)] rounded-full px-3 py-1.5">
+          <span className="relative flex h-2 w-2">
+            <span className="absolute inline-flex h-full w-full rounded-full bg-[var(--sentinel-green-500)] animate-pulse-soft" />
+            <span className="relative inline-flex rounded-full h-2 w-2 bg-[var(--sentinel-green-700)]" />
+          </span>
+          <span className="font-medium text-[var(--sentinel-navy)]">Live</span>
+          <span className="text-[var(--sentinel-line)]">|</span>
+          <span>{vendorCount} vendors</span>
+          <span className="text-[var(--sentinel-line)]">•</span>
+          <span className="text-red-700 font-medium">{ringCount} rings flagged</span>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-4 gap-4">
@@ -314,13 +367,28 @@ export function GraphView() {
                   onMouseLeave={() => { endDrag(); setHovered(null) }}
                 >
                   <g transform={`translate(${view.x}, ${view.y}) scale(${view.k})`}>
+                    {halos.map((h) => (
+                      <circle
+                        key={h.group}
+                        cx={h.cx}
+                        cy={h.cy}
+                        r={h.r}
+                        fill={h.isRing ? 'rgba(185,28,28,0.05)' : 'rgba(15,107,76,0.05)'}
+                        stroke={h.isRing ? 'rgba(185,28,28,0.16)' : 'rgba(15,107,76,0.14)'}
+                        strokeWidth={1}
+                      />
+                    ))}
+
                     {links
                       .filter((l) => activeEdgeTypes.has(l.type))
                       .map((l, i) => {
                         const meta = EDGE_META[l.type]
+                        const sourceRing = byIdIsRing(nodes, l.source)
+                        const targetRing = byIdIsRing(nodes, l.target)
                         const faded =
-                          (ringsOnly && (!byIdIsRing(nodes, l.source) && !byIdIsRing(nodes, l.target))) ||
+                          (ringsOnly && !sourceRing && !targetRing) ||
                           (matchedIds && !matchedIds.has(l.source) && !matchedIds.has(l.target))
+                        const isRingEdge = sourceRing && targetRing
                         return (
                           <line
                             key={i}
@@ -328,6 +396,8 @@ export function GraphView() {
                             stroke={meta?.color || '#94a3b8'}
                             strokeWidth={Math.max(l.weight, 1) * 1.4}
                             strokeOpacity={faded ? 0.06 : 0.45}
+                            strokeDasharray={isRingEdge && !reducedMotion ? '5 5' : undefined}
+                            className={isRingEdge && !reducedMotion ? 'edge-flow' : undefined}
                           />
                         )
                       })}
@@ -337,10 +407,12 @@ export function GraphView() {
                       const r = n.isRing ? 13 : Math.min(6 + n.degree * 1.3, 16)
                       const isSelected = selectedNode?.id === n.id
                       const showLabel = n.isRing || isSelected || hovered?.node.id === n.id
+                      const { x, y } = drift(n)
+                      const pulseR = n.isRing ? r + 5 + Math.sin(tick * 1.6 + phaseOf(n.id)) * 2 : 0
                       return (
                         <g
                           key={n.id}
-                          transform={`translate(${n.x}, ${n.y})`}
+                          transform={`translate(${x}, ${y})`}
                           className="cursor-pointer"
                           opacity={faded ? 0.18 : 1}
                           onClick={() => setSelectedNode(n)}
@@ -348,7 +420,7 @@ export function GraphView() {
                           onMouseLeave={() => setHovered(null)}
                         >
                           {n.isRing && (
-                            <circle r={r + 5} fill="none" stroke="#B91C1C" strokeOpacity={0.25} strokeWidth={1.5} />
+                            <circle r={pulseR} fill="none" stroke="#B91C1C" strokeOpacity={0.25} strokeWidth={1.5} />
                           )}
                           <circle
                             r={r}
@@ -495,7 +567,7 @@ export function GraphView() {
               ))}
               <div className="pt-2 mt-2 border-t border-[var(--sentinel-line)] flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full" style={{ background: '#B91C1C' }} />
-                <span className="text-[var(--sentinel-navy-muted)]">Part of a detected ring</span>
+                <span className="text-[var(--sentinel-navy-muted)]">Part of a detected ring (pulses)</span>
               </div>
             </CardContent>
           </Card>
