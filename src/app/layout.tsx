@@ -14,18 +14,47 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "MPLAD Sentinel — AI Fraud Detection for MPLAD Scheme",
-  description: "Ensemble ML + graph ring detection + tamper-evident audit trail for the MPLAD Scheme. Built for SIH26102.",
-  keywords: ["MPLAD", "fraud detection", "MoSPI", "SIH", "AI", "graph analysis", "audit trail"],
-  authors: [{ name: "MPLAD Sentinel Team" }],
+  title: "Sentinel",
+  description:
+    "Sentinel — intelligent monitoring, risk detection and transparency platform.",
+
+  keywords: [
+    "Sentinel",
+    "MPLAD",
+    "risk detection",
+    "fraud detection",
+    "transparency",
+    "monitoring",
+    "audit",
+  ],
+
+  authors: [
+    {
+      name: "Sentinel Team",
+    },
+  ],
+
+  applicationName: "Sentinel",
+
   icons: {
-    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
   },
+
   openGraph: {
-    title: "MPLAD Sentinel",
-    description: "AI-powered fraud detection for the MPLAD Scheme",
-    siteName: "MPLAD Sentinel",
+    title: "Sentinel",
+    description:
+      "Intelligent monitoring, risk detection and transparency platform.",
+    siteName: "Sentinel",
     type: "website",
+  },
+
+  twitter: {
+    card: "summary",
+    title: "Sentinel",
+    description:
+      "Intelligent monitoring, risk detection and transparency platform.",
   },
 };
 
@@ -40,6 +69,7 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         {children}
+
         <Toaster />
       </body>
     </html>
