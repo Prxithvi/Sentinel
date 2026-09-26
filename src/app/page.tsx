@@ -5,7 +5,7 @@ import { AuthProvider, useAuth } from '@/hooks/use-auth'
 import { useLang } from '@/hooks/use-lang'
 import { AuthView } from '@/components/views/auth-view'
 import { DashboardView } from '@/components/views/dashboard-view'
-import { MapView } from '@/components/views/map-view'
+import { IndiaMap } from '@/components/views/map-view'
 import { GraphView } from '@/components/views/graph-view'
 import { CasesView } from '@/components/views/cases-view'
 import { CaseDetailView } from '@/components/views/case-detail-view'
@@ -75,7 +75,7 @@ function Shell() {
   const renderView = () => {
     switch (view) {
       case 'dashboard': return <DashboardView onOpenWork={openWork} />
-      case 'map': return <MapView onStateClick={() => setView('dashboard')} />
+      case 'map': return <IndiaMap />
       case 'graph': return <GraphView />
       case 'cases': return <CasesView onOpenCase={openCase} />
       case 'caseDetail': return selectedCaseId ? <CaseDetailView caseId={selectedCaseId} onBack={() => setView('cases')} /> : null
