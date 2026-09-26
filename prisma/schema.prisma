@@ -7,6 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ============================================================
+// USERS & AUTHENTICATION
+// ============================================================
+
 model User {
   id        String    @id @default(cuid())
   email     String    @unique
@@ -16,6 +20,9 @@ model User {
   state     String?
   createdAt DateTime  @default(now())
   sessions  Session[]
+
+  @@index([role])
+  @@index([state])
 }
 
 model Session {
@@ -24,13 +31,22 @@ model Session {
   token     String   @unique
   expiresAt DateTime
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
+
+// ============================================================
+// GEOGRAPHY
+// ============================================================
 
 model State {
   id             String           @id @default(cuid())
   name           String           @unique
   code           String           @unique
+
   districts      District[]
   forecastPoints ForecastPoint[]
   constituencies MpConstituency[]
@@ -42,10 +58,12 @@ model District {
   id      String @id @default(cuid())
   name    String
   stateId String
-  state   State  @relation(fields: [stateId], references: [id])
-  works   Work[]
+
+  state State  @relation(fields: [stateId], references: [id])
+  works Work[]
 
   @@unique([name, stateId])
+  @@index([stateId])
 }
 
 model MpConstituency {
@@ -55,228 +73,471 @@ model MpConstituency {
   mpName  String
   party   String?
   mpId    String  @unique
-  state   State   @relation(fields: [stateId], references: [id])
-  works   Work[]
+
+  state State  @relation(fields: [stateId], references: [id])
+  works Work[]
+
+  @@index([stateId])
+  @@index([mpName])
 }
 
+// ============================================================
+// WORKS / PROJECTS
+// ============================================================
+
 model Work {
-  id                 String              @id @default(cuid())
-  workId             String              @unique
-  title              String
-  description        String
-  category           String
-  mpConstituencyId   String?
-  mpId               String?
-  districtId         String?
-  stateId            String?
-  fundSanctioned     Float
-  fundUtilized       Float
-  startDate          DateTime?
-  endDate            DateTime?
-  status             String              @default("ongoing")
-  vendorId           String?
-  createdAt          DateTime            @default(now())
+  id               String   @id @default(cuid())
+  workId           String   @unique
+  title            String
+  description      String
+  category         String
+
+  mpConstituencyId String?
+  mpId             String?
+  districtId       String?
+  stateId          String?
+
+  fundSanctioned   Float
+  fundUtilized     Float
+
+  startDate        DateTime?
+  endDate          DateTime?
+  status           String   @default("ongoing")
+
+  vendorId         String?
+  createdAt        DateTime @default(now())
+
+  // Relations
   cases              Case[]
   citizenReports     CitizenReport[]
   fieldVerifications FieldVerification[]
   payments           Payment[]
   riskScores         RiskScore[]
-  district           District?           @relation(fields: [districtId], references: [id])
-  mpConstituency     MpConstituency?     @relation(fields: [mpConstituencyId], references: [id])
-  state              State?              @relation(fields: [stateId], references: [id])
-  vendor             Vendor?             @relation(fields: [vendorId], references: [id])
+
+  district           District?       @relation(fields: [districtId], references: [id])
+  mpConstituency     MpConstituency? @relation(fields: [mpConstituencyId], references: [id])
+  state              State?          @relation(fields: [stateId], references: [id])
+  vendor             Vendor?         @relation(fields: [vendorId], references: [id])
+
+  // IMPORTANT:
+  // These indexes MUST be inside the Work model.
+  @@index([districtId])
+  @@index([vendorId])
+  @@index([stateId])
+  @@index([mpConstituencyId])
+  @@index([status])
+  @@index([category])
+  @@index([createdAt])
 }
 
+// ============================================================
+// VENDORS
+// ============================================================
+
 model Vendor {
-  id               String           @id @default(cuid())
-  vendorId         String           @unique
+  id               String   @id @default(cuid())
+  vendorId         String   @unique
   name             String
+
   pan              String
   gst              String?
   bankAccount      String
+
   phone            String?
   address          String?
   stateId          String?
-  registeredAt     DateTime         @default(now())
+
+  registeredAt     DateTime @default(now())
+
   blacklistEntries BlacklistEntry[]
-  graphEdgesFrom   GraphEdge[]      @relation("FromVendor")
-  graphEdgesTo     GraphEdge[]      @relation("ToVendor")
-  state            State?           @relation(fields: [stateId], references: [id])
-  works            Work[]
+
+  graphEdgesFrom   GraphEdge[] @relation("FromVendor")
+  graphEdgesTo     GraphEdge[] @relation("ToVendor")
+
+  state State? @relation(fields: [stateId], references: [id])
+  works Work[]
+
+  @@index([name])
+  @@index([pan])
+  @@index([gst])
+  @@index([stateId])
 }
+
+// ============================================================
+// PAYMENTS
+// ============================================================
 
 model Payment {
   id         String   @id @default(cuid())
   workId     String
+
   amount     Float
   paidAt     DateTime
+
   instrument String   @default("bank")
   reference  String?
-  work       Work     @relation(fields: [workId], references: [id])
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@index([workId])
+  @@index([paidAt])
+  @@index([amount])
 }
+
+// ============================================================
+// AI / RISK SCORING
+// ============================================================
 
 model RiskScore {
   id             String   @id @default(cuid())
   workId         String
+
+  // Individual model/rule scores
   ruleScore      Float    @default(0)
   isoScore       Float    @default(0)
   aeScore        Float    @default(0)
   graphScore     Float    @default(0)
   nlpScore       Float    @default(0)
+
+  // Final ensemble score
   ensembleScore  Float
+
+  // LOW / MEDIUM / HIGH / CRITICAL
   riskTier       String
+
+  // Explainability
   shapJson       String
   ruleFlags      String?
-  blacklistMatch Boolean  @default(false)
-  scoredAt       DateTime @default(now())
-  work           Work     @relation(fields: [workId], references: [id])
 
+  // External blacklist match
+  blacklistMatch Boolean  @default(false)
+
+  scoredAt       DateTime @default(now())
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@index([workId])
   @@index([riskTier])
+  @@index([ensembleScore])
+  @@index([scoredAt])
+  @@index([blacklistMatch])
 }
+
+// ============================================================
+// SCORING CONFIGURATION
+// ============================================================
 
 model ScoringConfig {
   id             String   @id @default("default")
+
   isoWeight      Float    @default(0.30)
   aeWeight       Float    @default(0.25)
   graphWeight    Float    @default(0.20)
   nlpWeight      Float    @default(0.10)
   ruleWeight     Float    @default(0.15)
+
   criticalCutoff Float    @default(0.80)
   highCutoff     Float    @default(0.60)
   mediumCutoff   Float    @default(0.40)
+
   updatedAt      DateTime @updatedAt
 }
 
+// ============================================================
+// ML MODEL RUNS
+// ============================================================
+
 model ModelRun {
   id          String   @id @default(cuid())
+
   modelName   String
   version     String
+
   trainedAt   DateTime @default(now())
+
   metricsJson String
+
   mlflowRunId String?
   notes       String?
+
+  @@index([modelName])
+  @@index([trainedAt])
 }
 
+// ============================================================
+// CASE MANAGEMENT
+// ============================================================
+
 model Case {
-  id            String            @id @default(cuid())
-  caseId        String            @unique
+  id            String   @id @default(cuid())
+  caseId        String   @unique
+
   workId        String
-  status        String            @default("open")
+
+  status        String   @default("open")
   assignedTo    String?
-  priority      String            @default("high")
+
+  priority      String   @default("high")
+
   notes         String?
-  createdAt     DateTime          @default(now())
-  updatedAt     DateTime          @updatedAt
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
   auditLog      AuditLogEntry[]
-  work          Work              @relation(fields: [workId], references: [id])
   notifications NotificationLog[]
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@index([workId])
+  @@index([status])
+  @@index([priority])
+  @@index([assignedTo])
+  @@index([createdAt])
 }
+
+// ============================================================
+// AUDIT LOG
+// ============================================================
 
 model AuditLogEntry {
   id        String   @id @default(cuid())
+
   caseId    String
+
   action    String
+
   actorId   String
   actorName String
+
   prevHash  String
   thisHash  String
+
   payload   String?
+
   timestamp DateTime @default(now())
-  case      Case     @relation(fields: [caseId], references: [id])
+
+  case Case @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId])
+  @@index([actorId])
+  @@index([timestamp])
 }
 
+// ============================================================
+// NOTIFICATIONS
+// ============================================================
+
 model NotificationLog {
-  id        String   @id @default(cuid())
-  caseId    String?
-  channel   String
-  recipient String
-  subject   String
-  body      String
-  status    String   @default("sent")
-  sentAt    DateTime @default(now())
-  case      Case?    @relation(fields: [caseId], references: [id])
+  id         String   @id @default(cuid())
+
+  caseId     String?
+
+  channel    String
+  recipient  String
+  subject    String
+  body       String
+
+  status     String   @default("sent")
+  sentAt     DateTime @default(now())
+
+  case Case? @relation(fields: [caseId], references: [id], onDelete: SetNull)
+
+  @@index([caseId])
+  @@index([status])
+  @@index([sentAt])
 }
+
+// ============================================================
+// CITIZEN REPORTS
+// ============================================================
 
 model CitizenReport {
   id           String   @id @default(cuid())
+
   workId       String?
+
   reporterName String?
   contact      String?
+
   description  String
+
   photoUrl     String?
+
   geoLat       Float?
   geoLng       Float?
+
   status       String   @default("submitted")
+
+  // Stores flags detected/matched by the analysis engine
   matchedFlags String?
+
   createdAt    DateTime @default(now())
-  work         Work?    @relation(fields: [workId], references: [id])
+
+  work Work? @relation(fields: [workId], references: [id], onDelete: SetNull)
+
+  @@index([workId])
+  @@index([status])
+  @@index([createdAt])
 }
+
+// ============================================================
+// FIELD VERIFICATION
+// ============================================================
 
 model FieldVerification {
   id           String   @id @default(cuid())
+
   workId       String
+
   auditorId    String?
   auditorName  String?
+
   photoUrl     String?
+
   geoLat       Float?
   geoLng       Float?
+
   matchesClaim Boolean?
+
   notes        String?
+
   verifiedAt   DateTime @default(now())
-  work         Work     @relation(fields: [workId], references: [id])
+
+  work Work @relation(fields: [workId], references: [id], onDelete: Cascade)
+
+  @@index([workId])
+  @@index([auditorId])
+  @@index([verifiedAt])
+  @@index([matchesClaim])
 }
+
+// ============================================================
+// BLACKLIST
+// ============================================================
 
 model BlacklistEntry {
   id               String   @id @default(cuid())
+
   identifierType   String
   identifierValue  String   @unique
   identifierMasked String
+
   reason           String
+
   source           String   @default("gst_defaulters")
+
   vendorId         String?
+
   addedAt          DateTime @default(now())
-  vendor           Vendor?  @relation(fields: [vendorId], references: [id])
+
+  vendor Vendor? @relation(fields: [vendorId], references: [id], onDelete: SetNull)
+
+  @@index([identifierType])
+  @@index([vendorId])
+  @@index([source])
 }
+
+// ============================================================
+// VENDOR RELATIONSHIP GRAPH
+// ============================================================
 
 model GraphEdge {
   id           String @id @default(cuid())
+
   fromVendorId String
   toVendorId   String
+
   edgeType     String
-  weight       Float  @default(1)
-  fromVendor   Vendor @relation("FromVendor", fields: [fromVendorId], references: [id])
-  toVendor     Vendor @relation("ToVendor", fields: [toVendorId], references: [id])
+
+  weight       Float @default(1)
+
+  fromVendor Vendor @relation(
+    "FromVendor",
+    fields: [fromVendorId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  toVendor Vendor @relation(
+    "ToVendor",
+    fields: [toVendorId],
+    references: [id],
+    onDelete: Cascade
+  )
+
+  @@index([fromVendorId])
+  @@index([toVendorId])
+  @@index([edgeType])
 }
+
+// ============================================================
+// GRAPH CLUSTERS / POSSIBLE VENDOR NETWORKS
+// ============================================================
 
 model GraphCluster {
   id         String   @id @default(cuid())
+
   clusterId  String   @unique
+
+  // Stored as JSON/string containing vendor IDs
   vendorIds  String
+
   size       Int
+
   isRing     Boolean  @default(false)
+
   riskScore  Float
+
   detectedAt DateTime @default(now())
+
+  @@index([riskScore])
+  @@index([isRing])
+  @@index([detectedAt])
 }
+
+// ============================================================
+// DATA INGESTION
+// ============================================================
 
 model IngestionBatch {
   id            String   @id @default(cuid())
+
   batchId       String   @unique
+
   entityType    String
+
   totalRows     Int
   validRows     Int
   rejectedRows  Int
+
   qualityReport String
+
   createdAt     DateTime @default(now())
+
+  @@index([entityType])
+  @@index([createdAt])
 }
+
+// ============================================================
+// FORECASTING
+// ============================================================
 
 model ForecastPoint {
   id             String   @id @default(cuid())
+
   stateId        String
+
   date           DateTime
+
   predictedCount Float
+
   confidence     Float
+
   createdAt      DateTime @default(now())
-  state          State    @relation(fields: [stateId], references: [id])
+
+  state State @relation(fields: [stateId], references: [id], onDelete: Cascade)
 
   @@unique([stateId, date])
+  @@index([date])
 }
