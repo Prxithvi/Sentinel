@@ -1,6 +1,8 @@
+// app/page.tsx
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
+import Image from 'next/image'
 import { AuthProvider, useAuth } from '@/hooks/use-auth'
 import { useLang } from '@/hooks/use-lang'
 import { AuthView } from '@/components/views/auth-view'
@@ -15,7 +17,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import {
   LayoutDashboard, Map as MapIcon, Network, FolderKanban, Trophy, Globe, Flag, ClipboardCheck,
-  Sliders, BarChart3, Ban, HeartPulse, LogOut, ShieldCheck, Languages,
+  Sliders, BarChart3, Ban, HeartPulse, LogOut, Languages,
 } from 'lucide-react'
 
 type ViewKey =
@@ -46,17 +48,30 @@ function Shell() {
   const [selectedCaseId, setSelectedCaseId] = useState<string | null>(null)
   const [selectedWorkId, setSelectedWorkId] = useState<string | null>(null)
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // Bumped once on successful sign-in so the shell's entry animation
+  // (header / sidebar / content stagger) plays exactly once per session,
+  // not on every view switch afterward.
+  const [entryPass, setEntryPass] = useState(0)
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <ShieldCheck className="w-12 h-12 text-emerald-600 animate-pulse" />
+      <div className="min-h-screen flex items-center justify-center bg-[var(--sentinel-bg)]">
+        <div className="relative w-10 h-10 animate-pulse-soft">
+          <Image src="/logo.png" alt="Sentinel" fill sizes="40px" className="object-contain" />
+        </div>
       </div>
     )
   }
 
   if (!user) {
-    return <AuthView onLoginSuccess={() => setView('dashboard')} />
+    return (
+      <AuthView
+        onLoginSuccess={() => {
+          setView('dashboard')
+          setEntryPass((p) => p + 1)
+        }}
+      />
+    )
   }
 
   const visibleNav = NAV.filter(n => !n.roles || n.roles.includes(user.role))
@@ -92,20 +107,20 @@ function Shell() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col bg-slate-50">
+    <div key={entryPass} className="min-h-screen flex flex-col bg-slate-50">
       {/* Header */}
-      <header className="bg-white border-b border-slate-200 sticky top-0 z-30">
+      <header className="bg-white border-b border-slate-200 sticky top-0 z-30 animate-fade-in">
         <div className="px-4 py-2 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <button className="lg:hidden p-2" onClick={() => setMobileNavOpen(!mobileNavOpen)}>
               <LayoutDashboard className="w-5 h-5" />
             </button>
             <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-lg bg-emerald-600 text-white flex items-center justify-center">
-                <ShieldCheck className="w-5 h-5" />
+              <div className="relative w-8 h-8 shrink-0">
+                <Image src="/logo.png" alt="Sentinel" fill sizes="32px" className="object-contain" />
               </div>
               <div>
-                <div className="font-bold text-slate-900 leading-tight">MPLAD Sentinel</div>
+                <div className="font-display font-medium tracking-tight text-slate-900 leading-tight">Sentinel</div>
                 <div className="text-[10px] text-muted-foreground">SIH26102 — Fraud Detection Platform</div>
               </div>
             </div>
@@ -127,7 +142,7 @@ function Shell() {
 
       <div className="flex-1 flex">
         {/* Sidebar */}
-        <aside className={`${mobileNavOpen ? 'block' : 'hidden'} lg:block w-56 bg-white border-r border-slate-200 overflow-y-auto`}>
+        <aside className={`${mobileNavOpen ? 'block' : 'hidden'} lg:block w-56 bg-white border-r border-slate-200 overflow-y-auto animate-slide-right stagger-2`}>
           <nav className="p-2 space-y-0.5">
             {visibleNav.map(n => (
               <button key={n.key} onClick={() => { setView(n.key); setMobileNavOpen(false) }}
@@ -151,7 +166,7 @@ function Shell() {
         </aside>
 
         {/* Main */}
-        <main className="flex-1 overflow-x-auto p-4 lg:p-6">
+        <main className="flex-1 overflow-x-auto p-4 lg:p-6 animate-slide-up stagger-3">
           {renderView()}
         </main>
       </div>
