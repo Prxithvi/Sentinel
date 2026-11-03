@@ -1,9 +1,5 @@
 import { db } from "../src/lib/db";
-import crypto from "crypto";
-
-function hashPassword(password: string): string {
-  return "h" + crypto.createHash("sha256").update(password).digest("hex");
-}
+import { hashPassword } from "../src/lib/auth";
 
 async function main() {
   console.log("====================================");
@@ -15,25 +11,25 @@ async function main() {
   const users = [
     {
       email: "admin@mplad.gov.in",
-      password: hashPassword("admin123"),
+      password: await hashPassword("admin123"),
       name: "Admin Officer",
       role: "admin",
     },
     {
       email: "analyst@mplad.gov.in",
-      password: hashPassword("analyst123"),
+      password: await hashPassword("analyst123"),
       name: "Senior Analyst",
       role: "analyst",
     },
     {
       email: "auditor@mplad.gov.in",
-      password: hashPassword("auditor123"),
+      password: await hashPassword("auditor123"),
       name: "Field Auditor",
       role: "auditor",
     },
     {
       email: "citizen@citizen.in",
-      password: hashPassword("citizen123"),
+      password: await hashPassword("citizen123"),
       name: "Citizen User",
       role: "citizen",
     },

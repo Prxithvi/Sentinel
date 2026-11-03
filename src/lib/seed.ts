@@ -459,15 +459,14 @@ export async function seedAll() {
   });
 
   // ── Default users (demo) ──
-  // Passwords hashed with sha256 (matches auth.ts hashPassword)
-  const crypto = await import('crypto');
-  const hash = (s: string) => 'h' + crypto.createHash('sha256').update(s).digest('hex');
+  // Passwords are hashed with scrypt (see hashPassword in auth.ts)
+  const { hashPassword } = await import('./auth');
   await db.user.createMany({
     data: [
-      { email: 'admin@mplad.gov.in', password: hash('admin123'), name: 'Admin Officer', role: 'admin' },
-      { email: 'analyst@mplad.gov.in', password: hash('analyst123'), name: 'Senior Analyst', role: 'analyst' },
-      { email: 'auditor@mplad.gov.in', password: hash('auditor123'), name: 'Field Auditor', role: 'auditor' },
-      { email: 'citizen@citizen.in', password: hash('citizen123'), name: 'Citizen User', role: 'citizen' },
+      { email: 'admin@mplad.gov.in', password: await hashPassword('admin123'), name: 'Admin Officer', role: 'admin' },
+      { email: 'analyst@mplad.gov.in', password: await hashPassword('analyst123'), name: 'Senior Analyst', role: 'analyst' },
+      { email: 'auditor@mplad.gov.in', password: await hashPassword('auditor123'), name: 'Field Auditor', role: 'auditor' },
+      { email: 'citizen@citizen.in', password: await hashPassword('citizen123'), name: 'Citizen User', role: 'citizen' },
     ],
   });
 
